@@ -20,60 +20,75 @@ elif [[ $# > 1 ]]; then
 fi
 
 cat $FILENAME | \
-sort -t '|' --parallel=8 -k 3 -r | \
+sort -t '|' -k 4,4 -k 3,3 --stable | \
 awk -F"${DELIMITER}" '
 BEGIN {
     delete first["1"]
     delete last["1"]
+    delete ordered["1"]
+    delete first_recorded["1"]
+    delete last_recorded["1"]
+    missing=0
+    counter=0
 }
 {
     if (NF != 5) {
         print "Error line [" NR "]. Wrong number of fields [" NF "]" >> "/dev/stderr"
         exit 1
     }
-    # else {
-    #     print $0
-    # }
-    
+    timestamp=$3
     user_id=$4
-    match($5, "a=([0-9A-Za-z]+)", matched)
-
-    if (! matched[1]) {
+    result = match($5, "[?&]a=([-%0-9A-Za-z]+)", matched)
+    if (result == 0) {
+        missing++
         # print "Line [" NR "] does not contain article id" >> "/dev/stderr"
-        # print $0
         next
     }
     article_id=matched[1]
 
-    match($5, "n=([0-9A-Za-z]+)", matched)
-
-    if (! matched[1]) {
+    result = match($5, "[?&]n=([-%0-9A-Za-z]+)", matched)
+    if (result == 0) {
+        missing++
         # print "Line [" NR "] does not contain wiki id" >> "/dev/stderr"
-        # print $0
         next
     }
-
     wiki_id=matched[1]
 
     if (! (user_id in first)){
+        counter++
+        ordered[counter]=user_id
         first[user_id]=article_id "|" wiki_id
+        first_recorded[user_id]=timestamp
     } else {
+        if (first_recorded[user_id] == timestamp){
+            next
+        }
+        
+        if (last_recorded[user_id] == timestamp){
+            next
+        }
+
         last[user_id]=article_id "|" wiki_id
+        last_recorded[user_id]=timestamp
     }
+
+    
 }
 END {
-    # print "Analyzed lines: " NR >> "/dev/stderr"
-    # print "Registered users: " length(first) >> "/dev/stderr"
-    # print "Multiple visits: " length(last) >> "/dev/stderr"
-    n=asorti(first, first_sorted)
+    print "Analyzed lines: " NR >> "/dev/stderr"
+    print "Registered users: " length(first) >> "/dev/stderr"
+    print "Missing fields: " length(first) >> "/dev/stderr"
+    print "Multiple visits: " length(last) >> "/dev/stderr"
     print "User id,Is same article,Is same wiki"
-    for (i = 1; i <= n; i++){
-        user_id=first_sorted[i]
+    # n=asorti(first, first_sorted)
+    
+    for (i in ordered){
+        user_id=ordered[i]
         if (! (user_id in last)){
             continue
         }
-        f=split(first[user_id], first_values)
-        l=split(last[user_id], last_values)
+        f=split(first[user_id], first_values, "|")
+        l=split(last[user_id], last_values, "|")
 
         article_equal= (first_values[1] == last_values[1]) ? "TRUE" : "FALSE"
         wiki_equal= (first_values[2] == last_values[2]) ? "TRUE" : "FALSE"
